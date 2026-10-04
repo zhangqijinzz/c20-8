@@ -14,6 +14,7 @@ import { clampDeskSize, clampItemDimension } from '../../shared/layoutRules'
 import { moveCanvasItem, rotateCanvasItem } from '../canvas/canvasViewModel'
 import { createMaterialDraft } from '../materials/materialsViewModel'
 import { inspectPlan } from '../inspection/inspectionViewModel'
+import { arrangePlan, type ArrangeResult } from '../arrange/arrangeViewModel'
 import { LocalWorkspaceRepository, type WorkspaceRepository } from './workspaceRepository'
 
 export interface WorkspaceViewModel {
@@ -26,6 +27,7 @@ export interface WorkspaceViewModel {
   issueCount: number
   feedback: string
   isPreviewOpen: boolean
+  arrangeResult: ArrangeResult | null
   selectItem: (id: string | null) => void
   addItem: (type: DeviceType) => void
   removeItem: (id: string) => void
@@ -39,6 +41,9 @@ export interface WorkspaceViewModel {
   deleteCurrentPlan: () => void
   openPreview: () => void
   closePreview: () => void
+  requestArrange: () => void
+  closeArrange: () => void
+  adoptArrange: () => void
 }
 
 const emptyInspection = { analysis: { overlapIds: [], outOfBoundsIds: [], coveragePercent: 0, status: 'clear' as const }, issueIds: [], issueCount: 0 }
@@ -49,6 +54,7 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
   const [document, setDocument] = useState<WorkspaceDocument | null>(null)
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [arrangeResult, setArrangeResult] = useState<ArrangeResult | null>(null)
   const [feedback, setFeedback] = useState('正在准备你的工作台…')
 
   useEffect(() => {
@@ -75,6 +81,14 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
   const selectedItem = activePlan?.items.find((item) => item.id === selectedItemId) ?? null
   const inspection = useMemo(() => activePlan ? inspectPlan(activePlan) : emptyInspection, [activePlan])
   const { analysis, issueIds, issueCount } = inspection
+
+  // 整理建议只属于生成它时的那版方案；方案切换后丢弃预览，避免拿旧建议对上新方案
+  const activePlanId = activePlan?.id ?? null
+  useEffect(() => {
+    setArrangeResult((current) => (
+      current && activePlanId && current.sourcePlanId !== activePlanId ? null : current
+    ))
+  }, [activePlanId])
 
   const persist = useCallback(async (nextDocument: WorkspaceDocument, message: string) => {
     setDocument(nextDocument)
@@ -174,6 +188,33 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
   const openPreview = useCallback(() => setIsPreviewOpen(true), [])
   const closePreview = useCallback(() => setIsPreviewOpen(false), [])
 
+  // 一键整理：计算结果只放进预览状态，不改动 activePlan，也不触发任何保存
+  const requestArrange = useCallback(() => {
+    if (!activePlan) return
+    setArrangeResult(arrangePlan(activePlan))
+  }, [activePlan])
+
+  const closeArrange = useCallback(() => setArrangeResult(null), [])
+
+  // 只有用户明确采纳，建议位置才作为一次普通编辑写入并保存
+  const adoptArrange = useCallback(() => {
+    if (!activePlan || !arrangeResult || arrangeResult.kind !== 'success' || arrangeResult.sourcePlanId !== activePlan.id) return
+    const positions = new Map(arrangeResult.items.map((item) => [item.id, item]))
+    const changed = activePlan.items.some((item) => {
+      const next = positions.get(item.id)
+      return next && (Math.abs(next.x - item.x) > 0 || Math.abs(next.y - item.y) > 0)
+    })
+    setArrangeResult(null)
+    if (!changed) return
+    updateActivePlan((plan) => ({
+      ...plan,
+      items: plan.items.map((item) => {
+        const next = positions.get(item.id)
+        return next ? { ...item, x: next.x, y: next.y } : item
+      }),
+    }), '已采纳一键整理建议，可继续手动微调')
+  }, [activePlan, arrangeResult, updateActivePlan])
+
   return {
     status,
     document,
@@ -184,6 +225,7 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
     issueCount,
     feedback,
     isPreviewOpen,
+    arrangeResult,
     selectItem,
     addItem,
     removeItem,
@@ -197,5 +239,8 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
     deleteCurrentPlan,
     openPreview,
     closePreview,
+    requestArrange,
+    closeArrange,
+    adoptArrange,
   }
 }

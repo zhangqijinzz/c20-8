@@ -8,13 +8,19 @@ interface CanvasStageProps {
   plan: WorkspacePlan
   selectedItemId: string | null
   analysis: LayoutAnalysis
+  /** 只读模式下不响应拖拽，用于整理建议预览 */
+  interactive?: boolean
+  /** 是否显示顶部操作提示条，对比预览里会隐藏 */
+  showToolbar?: boolean
+  /** 需要以虚线框形式额外描出的设备（用于标出建议方案中设备的原位置） */
+  ghostItems?: DeskItem[]
   onSelect: (id: string | null) => void
   onMove: (id: string, x: number, y: number) => void
 }
 
 interface DragState { id: string; offsetX: number; offsetY: number }
 
-export function CanvasStage({ plan, selectedItemId, analysis, onSelect, onMove }: CanvasStageProps) {
+export function CanvasStage({ plan, selectedItemId, analysis, interactive = true, showToolbar = true, ghostItems = [], onSelect, onMove }: CanvasStageProps) {
   const stageRef = useRef<SVGSVGElement>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   const scaleToMm = useCallback((clientX: number, clientY: number) => {
@@ -37,6 +43,7 @@ export function CanvasStage({ plan, selectedItemId, analysis, onSelect, onMove }
   }, [drag, onMove, scaleToMm])
 
   const startDrag = (event: ReactPointerEvent<SVGGElement>, item: DeskItem) => {
+    if (!interactive) return
     event.stopPropagation()
     const point = scaleToMm(event.clientX, event.clientY)
     if (!point) return
@@ -46,8 +53,8 @@ export function CanvasStage({ plan, selectedItemId, analysis, onSelect, onMove }
 
   return (
     <div className="canvas-wrap">
-      <div className="canvas-toolbar"><span><Move size={14} /> 拖动设备调整位置</span><span><RotateCw size={14} /> 旋转请在右侧操作</span></div>
-      <svg ref={stageRef} className="desk-canvas" viewBox={`0 0 ${plan.deskWidthMm} ${plan.deskHeightMm}`} role="img" aria-label={`桌面布局画布，${plan.deskWidthMm}乘${plan.deskHeightMm}毫米`} onPointerDown={() => onSelect(null)}>
+      {showToolbar && <div className="canvas-toolbar"><span><Move size={14} /> 拖动设备调整位置</span><span><RotateCw size={14} /> 旋转请在右侧操作</span></div>}
+      <svg ref={stageRef} className={`desk-canvas ${interactive ? '' : 'is-static'}`} viewBox={`0 0 ${plan.deskWidthMm} ${plan.deskHeightMm}`} role="img" aria-label={`桌面布局画布，${plan.deskWidthMm}乘${plan.deskHeightMm}毫米`} onPointerDown={() => interactive && onSelect(null)}>
         <defs>
           <pattern id="desk-grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M 50 0 L 0 0 0 50" fill="none" stroke="#d8e1ed" strokeWidth="1" /></pattern>
           <filter id="item-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#20304a" floodOpacity=".12" /></filter>
@@ -55,13 +62,26 @@ export function CanvasStage({ plan, selectedItemId, analysis, onSelect, onMove }
         <rect width={plan.deskWidthMm} height={plan.deskHeightMm} rx="22" fill="#f8fafc" />
         <rect width={plan.deskWidthMm} height={plan.deskHeightMm} rx="22" fill="url(#desk-grid)" />
         <text x="34" y="48" fill="#a0aec0" fontSize="20" letterSpacing="3">FOCUS ZONE / {plan.deskWidthMm} × {plan.deskHeightMm} MM</text>
+        {ghostItems.map((ghost) => (
+          <g key={`ghost-${ghost.id}`} transform={`translate(${ghost.x + ghost.widthMm / 2} ${ghost.y + ghost.heightMm / 2}) rotate(${ghost.rotation})`} pointerEvents="none">
+            <rect
+              className="ghost-position"
+              x={-ghost.widthMm / 2}
+              y={-ghost.heightMm / 2}
+              width={ghost.widthMm}
+              height={ghost.heightMm}
+              rx={Math.min(18, ghost.heightMm / 5)}
+              fill="none"
+            />
+          </g>
+        ))}
         {plan.items.map((item) => {
           const definition = getDeviceDefinition(item.type)
           const isSelected = selectedItemId === item.id
           const hasIssue = analysis.overlapIds.includes(item.id) || analysis.outOfBoundsIds.includes(item.id)
           const cx = item.x + item.widthMm / 2
           const cy = item.y + item.heightMm / 2
-          return <g className={`desk-item ${isSelected ? 'is-selected' : ''} ${hasIssue ? 'has-issue' : ''}`} key={item.id} onPointerDown={(event) => startDrag(event, item)} role="button" tabIndex={0} aria-label={`${definition.label}，${item.widthMm}乘${item.heightMm}毫米`}>
+          return <g className={`desk-item ${isSelected ? 'is-selected' : ''} ${hasIssue ? 'has-issue' : ''} ${interactive ? '' : 'is-locked'}`} key={item.id} onPointerDown={(event) => startDrag(event, item)} role={interactive ? 'button' : undefined} tabIndex={interactive ? 0 : undefined} aria-label={`${definition.label}，${item.widthMm}乘${item.heightMm}毫米`}>
             <g transform={`translate(${cx} ${cy}) rotate(${item.rotation})`}>
               <rect x={-item.widthMm / 2} y={-item.heightMm / 2} width={item.widthMm} height={item.heightMm} rx={Math.min(24, item.heightMm / 5)} fill={definition.color} filter="url(#item-shadow)" />
               <rect className="item-inner-line" x={-item.widthMm / 2 + 12} y={-item.heightMm / 2 + 12} width={Math.max(0, item.widthMm - 24)} height={Math.max(0, item.heightMm - 24)} rx={12} fill="none" />
