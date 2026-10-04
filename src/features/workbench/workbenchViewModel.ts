@@ -14,7 +14,13 @@ import { clampDeskSize, clampItemDimension } from '../../shared/layoutRules'
 import { moveCanvasItem, rotateCanvasItem } from '../canvas/canvasViewModel'
 import { createMaterialDraft } from '../materials/materialsViewModel'
 import { inspectPlan } from '../inspection/inspectionViewModel'
+import { buildArrangeSuggestion, type ArrangeFailure, type ArrangeSuccess } from '../arrange/arrangeViewModel'
 import { LocalWorkspaceRepository, type WorkspaceRepository } from './workspaceRepository'
+
+export interface ArrangePreviewState {
+  failure: ArrangeFailure | null
+  success: ArrangeSuccess | null
+}
 
 export interface WorkspaceViewModel {
   status: WorkspaceStatus
@@ -26,6 +32,7 @@ export interface WorkspaceViewModel {
   issueCount: number
   feedback: string
   isPreviewOpen: boolean
+  arrangePreview: ArrangePreviewState | null
   selectItem: (id: string | null) => void
   addItem: (type: DeviceType) => void
   removeItem: (id: string) => void
@@ -39,6 +46,9 @@ export interface WorkspaceViewModel {
   deleteCurrentPlan: () => void
   openPreview: () => void
   closePreview: () => void
+  requestArrange: () => void
+  cancelArrange: () => void
+  acceptArrange: () => void
 }
 
 const emptyInspection = { analysis: { overlapIds: [], outOfBoundsIds: [], coveragePercent: 0, status: 'clear' as const }, issueIds: [], issueCount: 0 }
@@ -49,6 +59,7 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
   const [document, setDocument] = useState<WorkspaceDocument | null>(null)
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [arrangePreview, setArrangePreview] = useState<ArrangePreviewState | null>(null)
   const [feedback, setFeedback] = useState('正在准备你的工作台…')
 
   useEffect(() => {
@@ -72,6 +83,11 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
     () => document?.plans.find((plan) => plan.id === document.activePlanId) ?? null,
     [document],
   )
+
+  const activePlanId = activePlan?.id ?? null
+  useEffect(() => {
+    setArrangePreview(null)
+  }, [activePlanId])
   const selectedItem = activePlan?.items.find((item) => item.id === selectedItemId) ?? null
   const inspection = useMemo(() => activePlan ? inspectPlan(activePlan) : emptyInspection, [activePlan])
   const { analysis, issueIds, issueCount } = inspection
@@ -174,6 +190,32 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
   const openPreview = useCallback(() => setIsPreviewOpen(true), [])
   const closePreview = useCallback(() => setIsPreviewOpen(false), [])
 
+  const requestArrange = useCallback(() => {
+    if (!activePlan) return
+    if (activePlan.items.length === 0) {
+      setFeedback('桌面上还没有设备，先从左侧添加')
+      return
+    }
+    const suggestion = buildArrangeSuggestion(activePlan)
+    if (suggestion.ok) {
+      setArrangePreview({ success: suggestion, failure: null })
+    } else {
+      setArrangePreview({ success: null, failure: suggestion })
+    }
+  }, [activePlan])
+
+  const cancelArrange = useCallback(() => setArrangePreview(null), [])
+
+  const acceptArrange = useCallback(() => {
+    const success = arrangePreview?.success
+    if (!document || !activePlan || !success) return
+    setArrangePreview(null)
+    updateActivePlan(
+      () => ({ ...success.plan, id: activePlan.id, name: activePlan.name }),
+      success.movedCount === 0 ? '布局已经很整齐，未作改动' : `已采纳整理建议，挪动了 ${success.movedCount} 件设备，可继续手动微调`,
+    )
+  }, [activePlan, arrangePreview, document, updateActivePlan])
+
   return {
     status,
     document,
@@ -184,6 +226,7 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
     issueCount,
     feedback,
     isPreviewOpen,
+    arrangePreview,
     selectItem,
     addItem,
     removeItem,
@@ -197,5 +240,8 @@ export function useWorkspaceViewModel(repository?: WorkspaceRepository): Workspa
     deleteCurrentPlan,
     openPreview,
     closePreview,
+    requestArrange,
+    cancelArrange,
+    acceptArrange,
   }
 }

@@ -1,9 +1,10 @@
-import { Check, Cloud, FileCheck2, PanelTop, TriangleAlert } from 'lucide-react'
+import { Check, Cloud, FileCheck2, PanelTop, TriangleAlert, Wand2 } from 'lucide-react'
 import { DEVICE_DEFINITIONS } from '../shared/models'
 import { CanvasStage } from '../features/canvas/components/CanvasStage'
 import { DevicePalette } from '../features/materials/components/DevicePalette'
 import { InspectorPanel } from '../features/inspection/components/InspectorPanel'
 import { PreviewOverlay } from '../features/inspection/components/PreviewOverlay'
+import { ArrangeFailureOverlay, ArrangeOverlay } from '../features/arrange/components/ArrangeOverlay'
 import { PlanSidebar } from '../features/workbench/components/PlanSidebar'
 import { useWorkspaceViewModel } from '../features/workbench/workbenchViewModel'
 
@@ -26,10 +27,12 @@ export function App() {
         <div className="workspace-content">
           <div className="page-heading"><div><span className="eyebrow">DESK PLANNER / {new Date().getFullYear()}</span><h1>把桌面，变成一张清晰的地图。</h1><p>先放置，再调整。每个尺寸与间距都在你的掌控之中。</p></div><div className="feedback-chip"><span className={viewModel.status === 'error' ? 'feedback-icon error' : 'feedback-icon'}>{viewModel.status === 'error' ? <TriangleAlert size={14} /> : <Check size={14} />}</span>{viewModel.feedback}</div></div>
           <div className="metrics-row"><div className="metric-card"><span>桌面尺寸</span><strong>{activePlan.deskWidthMm} <i>×</i> {activePlan.deskHeightMm}<small>mm</small></strong><em>可用面积</em></div><div className="metric-card"><span>已放置设备</span><strong>{activePlan.items.length}<small>件</small></strong><em>点击设备可编辑</em></div><div className={`metric-card ${analysis.status === 'attention' ? 'metric-warning' : ''}`}><span>空间检查</span><strong>{issueCount === 0 ? '通过' : `${issueCount} 个问题`}</strong><em>{issueCount === 0 ? '布局目前很舒展' : '请查看红色标记'}</em></div><div className="coverage-card"><div><span>占用率</span><strong>{analysis.coveragePercent}%</strong></div><div className="coverage-bar"><span style={{ width: `${Math.max(4, analysis.coveragePercent)}%` }} /></div><small>设备投影面积 / 桌面面积</small></div></div>
-          <div className="editor-grid"><DevicePalette devices={DEVICE_DEFINITIONS} onAdd={viewModel.addItem} /><section className="stage-panel"><div className="stage-header"><div><span className="eyebrow">LIVE CANVAS</span><h2>{activePlan.name}</h2></div><div className={`status-pill ${analysis.status === 'attention' ? 'status-attention' : ''}`}>{analysis.status === 'attention' ? <TriangleAlert size={14} /> : <FileCheck2 size={14} />}{analysis.status === 'attention' ? '需要调整' : '布局健康'}</div></div><CanvasStage plan={activePlan} selectedItemId={selectedItem?.id ?? null} analysis={analysis} onSelect={viewModel.selectItem} onMove={viewModel.moveItem} /></section><InspectorPanel plan={activePlan} item={selectedItem} issueIds={issueIds} onUpdateDesk={viewModel.updateDesk} onUpdateItem={viewModel.updateItem} onRotate={viewModel.rotateItem} onDelete={viewModel.removeItem} /></div>
+          <div className="editor-grid"><DevicePalette devices={DEVICE_DEFINITIONS} onAdd={viewModel.addItem} /><section className="stage-panel"><div className="stage-header"><div><span className="eyebrow">LIVE CANVAS</span><h2>{activePlan.name}</h2></div><div className="stage-header-actions"><button className="arrange-button" onClick={viewModel.requestArrange} type="button" title="按当前桌面尺寸自动计算一版不越界、不重叠的摆放建议（仅预览）"><Wand2 size={14} /> 一键整理</button><div className={`status-pill ${analysis.status === 'attention' ? 'status-attention' : ''}`}>{analysis.status === 'attention' ? <TriangleAlert size={14} /> : <FileCheck2 size={14} />}{analysis.status === 'attention' ? '需要调整' : '布局健康'}</div></div></div><CanvasStage plan={activePlan} selectedItemId={selectedItem?.id ?? null} analysis={analysis} onSelect={viewModel.selectItem} onMove={viewModel.moveItem} /></section><InspectorPanel plan={activePlan} item={selectedItem} issueIds={issueIds} onUpdateDesk={viewModel.updateDesk} onUpdateItem={viewModel.updateItem} onRotate={viewModel.rotateItem} onDelete={viewModel.removeItem} /></div>
         </div>
       </section>
       {viewModel.isPreviewOpen && <PreviewOverlay plan={activePlan} analysis={analysis} issueCount={issueCount} onClose={viewModel.closePreview} />}
+      {viewModel.arrangePreview?.success && <ArrangeOverlay currentPlan={activePlan} suggestion={viewModel.arrangePreview.success.plan} moves={viewModel.arrangePreview.success.moves} movedCount={viewModel.arrangePreview.success.movedCount} onCancel={viewModel.cancelArrange} onAccept={viewModel.acceptArrange} />}
+      {viewModel.arrangePreview?.failure && <ArrangeFailureOverlay plan={activePlan} failure={viewModel.arrangePreview.failure} onClose={viewModel.cancelArrange} />}
     </main>
   )
 }
